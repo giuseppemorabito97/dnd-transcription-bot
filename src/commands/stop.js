@@ -1,8 +1,9 @@
 import { SlashCommandBuilder, AttachmentBuilder } from 'discord.js';
 import { getVoiceConnection } from '@discordjs/voice';
-import { transcribeAudio } from '../transcription/whisper.js';
+import { transcribeAudio, transcribeWithSpeakers } from '../transcription/whisper.js';
 import { existsSync } from 'fs';
 import { readFile } from 'fs/promises';
+import config from '../config.js';
 
 export const data = new SlashCommandBuilder()
   .setName('stop')
@@ -35,20 +36,35 @@ export async function execute(interaction, client) {
     const minutes = Math.floor(duration / 60);
     const seconds = duration % 60;
 
-    // Stop recording and get audio file path
-    const audioFilePath = await session.recorder.stop();
+    // Get user IDs before stopping
+    const userIds = session.recorder.getUserIds();
+    const userCount = userIds.length;
 
     await interaction.editReply({
       content: `⏹️ **Recording stopped**\n` +
-        `Duration: ${minutes}m ${seconds}s\n\n` +
-        `🔄 Processing transcription... This may take a moment.`,
+        `Duration: ${minutes}m ${seconds}s\n` +
+        `Speakers detected: ${userCount}\n\n` +
+        `🔄 Processing transcription for each speaker... This may take a moment.`,
     });
+
+    // Save per-user audio files
+    const userAudioFiles = await session.recorder.saveAllUserAudio(config.paths.recordings);
+
+    // Stop recording (this also saves the mixed audio)
+    const audioFilePath = await session.recorder.stop();
 
     // Update session state
     session.recording = false;
 
-    // Generate transcription
-    const transcriptPath = await transcribeAudio(audioFilePath, session.sessionName);
+    // Generate transcription with speaker labels
+    let transcriptPath;
+    if (Object.keys(userAudioFiles).length > 0) {
+      // Use per-speaker transcription
+      transcriptPath = await transcribeWithSpeakers(userAudioFiles, session.sessionName);
+    } else {
+      // Fallback to mixed audio transcription
+      transcriptPath = await transcribeAudio(audioFilePath, session.sessionName);
+    }
 
     if (transcriptPath && existsSync(transcriptPath)) {
       // Read transcript for preview

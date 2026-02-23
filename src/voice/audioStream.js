@@ -2,24 +2,33 @@ import { EventEmitter } from 'events';
 import { writeFile } from 'fs/promises';
 
 /**
- * Audio mixer that collects Opus packets and decodes them using WASM
+ * Audio mixer that collects Opus packets per user for speaker identification
  * Avoids native module crashes and OGG container issues
  */
 export class AudioMixer extends EventEmitter {
   constructor() {
     super();
     this.streams = new Map();
-    this.opusPackets = [];
+    this.userPackets = new Map(); // userId -> [{packet, timestamp}]
     this.isRunning = false;
     this.silenceInterval = null;
-    this.decoder = null;
+    this.startTime = Date.now();
   }
 
   addStream(userId, opusStream) {
-    // Store raw Opus packets for later processing
+    // Initialize packet storage for this user
+    if (!this.userPackets.has(userId)) {
+      this.userPackets.set(userId, []);
+    }
+
+    // Store raw Opus packets with timestamps for this specific user
     opusStream.on('data', chunk => {
       try {
-        this.opusPackets.push(Buffer.from(chunk));
+        const packets = this.userPackets.get(userId);
+        packets.push({
+          packet: Buffer.from(chunk),
+          timestamp: Date.now() - this.startTime
+        });
       } catch (e) {
         // Ignore errors
       }
@@ -66,16 +75,99 @@ export class AudioMixer extends EventEmitter {
   }
 
   getPacketCount() {
-    return this.opusPackets.length;
+    let total = 0;
+    for (const packets of this.userPackets.values()) {
+      total += packets.length;
+    }
+    return total;
+  }
+
+  getUserIds() {
+    return [...this.userPackets.keys()];
   }
 
   /**
-   * Decode Opus packets to PCM using WASM decoder
+   * Decode Opus packets for a specific user to PCM using WASM decoder
+   */
+  async decodeUserPackets(userId) {
+    const packets = this.userPackets.get(userId);
+    if (!packets || packets.length === 0) {
+      return null;
+    }
+
+    const { OpusDecoder } = await import('opus-decoder');
+
+    // Create decoder for Discord's audio format: 48kHz stereo
+    const decoder = new OpusDecoder({
+      channels: 2,
+      sampleRate: 48000,
+    });
+
+    await decoder.ready;
+
+    const pcmChunks = [];
+    let decodedCount = 0;
+
+    for (const { packet } of packets) {
+      try {
+        const decoded = decoder.decodeFrame(new Uint8Array(packet));
+        if (decoded && decoded.channelData && decoded.channelData[0]) {
+          // Convert stereo to mono by averaging channels
+          const left = decoded.channelData[0];
+          const right = decoded.channelData[1] || left;
+          const mono = new Float32Array(left.length);
+          for (let i = 0; i < left.length; i++) {
+            mono[i] = (left[i] + right[i]) / 2;
+          }
+          pcmChunks.push(mono);
+          decodedCount++;
+        }
+      } catch (e) {
+        // Some packets may be corrupted, continue with others
+      }
+    }
+
+    decoder.free();
+
+    if (pcmChunks.length === 0) {
+      return null;
+    }
+
+    // Concatenate all PCM chunks
+    const totalLength = pcmChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const pcmData = new Float32Array(totalLength);
+    let offset = 0;
+    for (const chunk of pcmChunks) {
+      pcmData.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    return {
+      samples: pcmData,
+      sampleRate: 48000,
+      packetCount: decodedCount
+    };
+  }
+
+  /**
+   * Decode all Opus packets (mixed) to PCM using WASM decoder
    */
   async decodeOpusPackets() {
-    const { OpusDecodedAudio, OpusDecoder } = await import('opus-decoder');
+    // Combine all user packets sorted by timestamp
+    const allPackets = [];
+    for (const [userId, packets] of this.userPackets) {
+      for (const p of packets) {
+        allPackets.push(p.packet);
+      }
+    }
 
-    console.log(`[AudioMixer] Decoding ${this.opusPackets.length} Opus packets with WASM decoder...`);
+    if (allPackets.length === 0) {
+      throw new Error('No audio packets collected');
+    }
+
+    const { OpusDecoder } = await import('opus-decoder');
+
+    console.log(`[AudioMixer] Decoding ${allPackets.length} Opus packets with WASM decoder...`);
 
     // Create decoder for Discord's audio format: 48kHz stereo
     const decoder = new OpusDecoder({
@@ -89,7 +181,7 @@ export class AudioMixer extends EventEmitter {
     let decodedCount = 0;
     let errorCount = 0;
 
-    for (const packet of this.opusPackets) {
+    for (const packet of allPackets) {
       try {
         const decoded = decoder.decodeFrame(new Uint8Array(packet));
         if (decoded && decoded.channelData && decoded.channelData[0]) {
@@ -199,14 +291,15 @@ export class AudioMixer extends EventEmitter {
   }
 
   /**
-   * Save collected audio to WAV file
+   * Save collected audio to WAV file (mixed)
    */
   async saveToWav(outputPath) {
-    if (this.opusPackets.length === 0) {
+    const packetCount = this.getPacketCount();
+    if (packetCount === 0) {
       throw new Error('No audio packets collected');
     }
 
-    console.log(`[AudioMixer] Processing ${this.opusPackets.length} Opus packets...`);
+    console.log(`[AudioMixer] Processing ${packetCount} Opus packets...`);
 
     // Decode Opus to PCM
     const { samples, sampleRate } = await this.decodeOpusPackets();
@@ -226,6 +319,34 @@ export class AudioMixer extends EventEmitter {
 
     await writeFile(outputPath, wavData);
     console.log(`[AudioMixer] Saved WAV to ${outputPath} (${(wavData.length / 1024).toFixed(1)} KB)`);
+
+    return outputPath;
+  }
+
+  /**
+   * Save audio for a specific user to WAV file
+   */
+  async saveUserToWav(userId, outputPath) {
+    const decoded = await this.decodeUserPackets(userId);
+    if (!decoded) {
+      return null;
+    }
+
+    const { samples, sampleRate, packetCount } = decoded;
+
+    // Resample from 48kHz to 16kHz for Whisper
+    const targetRate = 16000;
+    const resampled = this.resample(samples, sampleRate, targetRate);
+
+    // Convert to 16-bit PCM
+    const pcmData = this.floatTo16BitPCM(resampled);
+
+    // Create WAV file
+    const header = this.createWavHeader(pcmData.length, targetRate, 1, 16);
+    const wavData = Buffer.concat([header, pcmData]);
+
+    await writeFile(outputPath, wavData);
+    console.log(`[AudioMixer] Saved user ${userId} WAV to ${outputPath} (${(wavData.length / 1024).toFixed(1)} KB, ${packetCount} packets)`);
 
     return outputPath;
   }

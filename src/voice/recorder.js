@@ -5,14 +5,16 @@ import { AudioMixer } from './audioStream.js';
 import config from '../config.js';
 
 export class VoiceRecorder {
-  constructor(connection, guildId, sessionName) {
+  constructor(connection, guildId, sessionName, client) {
     this.connection = connection;
     this.guildId = guildId;
     this.sessionName = sessionName;
+    this.client = client; // Discord client for fetching usernames
     this.userStreams = new Map();
     this.mixer = new AudioMixer();
     this.outputPath = null;
     this.isRecording = false;
+    this.userNames = new Map(); // userId -> username
   }
 
   async start() {
@@ -32,10 +34,29 @@ export class VoiceRecorder {
     const receiver = this.connection.receiver;
 
     // Listen for users speaking
-    receiver.speaking.on('start', userId => {
+    receiver.speaking.on('start', async userId => {
       if (this.userStreams.has(userId)) return;
 
-      console.log(`[Recorder] User ${userId} started speaking`);
+      // Try to get username
+      if (!this.userNames.has(userId)) {
+        try {
+          const guild = this.client.guilds.cache.get(this.guildId);
+          if (guild) {
+            const member = await guild.members.fetch(userId);
+            const displayName = member.displayName || member.user.username;
+            this.userNames.set(userId, displayName);
+            console.log(`[Recorder] User ${displayName} (${userId}) started speaking`);
+          } else {
+            this.userNames.set(userId, `User_${userId.slice(-4)}`);
+            console.log(`[Recorder] User ${userId} started speaking`);
+          }
+        } catch (e) {
+          this.userNames.set(userId, `User_${userId.slice(-4)}`);
+          console.log(`[Recorder] User ${userId} started speaking`);
+        }
+      } else {
+        console.log(`[Recorder] User ${this.userNames.get(userId)} started speaking`);
+      }
 
       const audioStream = receiver.subscribe(userId, {
         end: {
@@ -44,13 +65,14 @@ export class VoiceRecorder {
         },
       });
 
-      // Add stream to mixer (collects raw Opus packets)
+      // Add stream to mixer (collects raw Opus packets per user)
       this.mixer.addStream(userId, audioStream);
       this.userStreams.set(userId, audioStream);
 
       // Handle stream end
       audioStream.on('end', () => {
-        console.log(`[Recorder] User ${userId} stopped speaking`);
+        const name = this.userNames.get(userId) || userId;
+        console.log(`[Recorder] User ${name} stopped speaking`);
         this.userStreams.delete(userId);
         this.mixer.removeStream(userId);
       });
@@ -102,6 +124,63 @@ export class VoiceRecorder {
       await this.createEmptyWav(this.outputPath);
       return this.outputPath;
     }
+  }
+
+  /**
+   * Get list of user IDs that spoke during the recording
+   */
+  getUserIds() {
+    return this.mixer.getUserIds();
+  }
+
+  /**
+   * Get username for a user ID
+   */
+  getUserName(userId) {
+    return this.userNames.get(userId) || `User_${userId.slice(-4)}`;
+  }
+
+  /**
+   * Get all user names mapped to IDs
+   */
+  getUserNames() {
+    return this.userNames;
+  }
+
+  /**
+   * Save audio for a specific user
+   */
+  async saveUserAudio(userId, outputDir) {
+    const userName = this.getUserName(userId).replace(/[^a-zA-Z0-9]/g, '_');
+    const outputPath = join(outputDir, `${this.sessionName}_${userName}.wav`);
+
+    try {
+      const result = await this.mixer.saveUserToWav(userId, outputPath);
+      return result ? outputPath : null;
+    } catch (error) {
+      console.error(`[Recorder] Error saving audio for ${userId}:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Save audio for all users separately
+   */
+  async saveAllUserAudio(outputDir) {
+    const userIds = this.getUserIds();
+    const results = {};
+
+    for (const userId of userIds) {
+      const path = await this.saveUserAudio(userId, outputDir);
+      if (path) {
+        results[userId] = {
+          path,
+          userName: this.getUserName(userId)
+        };
+      }
+    }
+
+    return results;
   }
 
   async createEmptyWav(wavPath) {

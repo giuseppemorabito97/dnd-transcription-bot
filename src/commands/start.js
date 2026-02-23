@@ -43,8 +43,8 @@ export async function execute(interaction, client) {
     `session_${new Date().toISOString().replace(/[:.]/g, '-')}`;
 
   try {
-    // Initialize voice recorder
-    const recorder = new VoiceRecorder(connection, interaction.guildId, sessionName);
+    // Initialize voice recorder with client for fetching usernames
+    const recorder = new VoiceRecorder(connection, interaction.guildId, sessionName, client);
     await recorder.start();
 
     // Update session state

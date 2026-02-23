@@ -29,7 +29,7 @@ export async function transcribeAudio(audioPath, sessionName) {
   // Path to whisper.cpp in whisper-node
   const whisperCppPath = join(PROJECT_ROOT, 'node_modules', 'whisper-node', 'dist', 'cpp', 'whisper.cpp');
   const modelPath = join(whisperCppPath, 'models', `ggml-${config.whisper.model}.bin`);
-  const mainPath = join(whisperCppPath, 'main');
+  const mainPath = join(whisperCppPath, 'build', 'bin', 'whisper-cli');
 
   console.log(`[Whisper] Model path: ${modelPath}`);
   console.log(`[Whisper] Model exists: ${existsSync(modelPath)}`);
@@ -120,6 +120,79 @@ async function createPlaceholderTranscript(transcriptPath, sessionName, audioPat
     `Error: ${errorMsg}\n`;
 
   await writeFile(transcriptPath, content, 'utf-8');
+  return transcriptPath;
+}
+
+/**
+ * Transcribe audio for multiple users and combine with speaker labels
+ * @param {Object} userAudioFiles - Map of userId -> {path, userName}
+ * @param {string} sessionName - Name for the output transcript
+ * @returns {Promise<string>} Path to the generated transcript file
+ */
+export async function transcribeWithSpeakers(userAudioFiles, sessionName) {
+  // Ensure transcripts directory exists
+  const transcriptsDir = join(PROJECT_ROOT, 'transcripts');
+  if (!existsSync(transcriptsDir)) {
+    mkdirSync(transcriptsDir, { recursive: true });
+  }
+
+  const transcriptPath = join(transcriptsDir, `${sessionName}.txt`);
+
+  // Path to whisper.cpp
+  const whisperCppPath = join(PROJECT_ROOT, 'node_modules', 'whisper-node', 'dist', 'cpp', 'whisper.cpp');
+  const modelPath = join(whisperCppPath, 'models', `ggml-${config.whisper.model}.bin`);
+  const mainPath = join(whisperCppPath, 'build', 'bin', 'whisper-cli');
+
+  if (!existsSync(modelPath)) {
+    console.error(`[Whisper] Model not found at ${modelPath}`);
+    return createPlaceholderTranscript(transcriptPath, sessionName, 'multiple files', 'Model not found');
+  }
+
+  const userTranscripts = [];
+
+  // Transcribe each user's audio
+  for (const [userId, { path, userName }] of Object.entries(userAudioFiles)) {
+    if (!existsSync(path)) {
+      console.log(`[Whisper] Skipping ${userName}: audio file not found`);
+      continue;
+    }
+
+    console.log(`[Whisper] Transcribing audio for ${userName}...`);
+
+    try {
+      const transcript = await runWhisperCpp(mainPath, modelPath, path);
+      if (transcript && transcript.trim()) {
+        userTranscripts.push({
+          userName,
+          userId,
+          text: transcript.trim()
+        });
+        console.log(`[Whisper] Transcribed ${userName}: ${transcript.slice(0, 50)}...`);
+      }
+    } catch (error) {
+      console.error(`[Whisper] Failed to transcribe ${userName}:`, error.message);
+    }
+  }
+
+  // Format transcript with speaker labels
+  let formattedTranscript = `D&D Session Transcript\n`;
+  formattedTranscript += `Session: ${sessionName}\n`;
+  formattedTranscript += `Date: ${new Date().toLocaleString()}\n`;
+  formattedTranscript += `Speakers: ${userTranscripts.map(u => u.userName).join(', ')}\n`;
+  formattedTranscript += `${'='.repeat(50)}\n\n`;
+
+  if (userTranscripts.length === 0) {
+    formattedTranscript += `[No speech detected]\n`;
+  } else {
+    for (const { userName, text } of userTranscripts) {
+      formattedTranscript += `**${userName}:**\n`;
+      formattedTranscript += `${text}\n\n`;
+    }
+  }
+
+  await writeFile(transcriptPath, formattedTranscript, 'utf-8');
+  console.log(`[Whisper] Transcription with speakers complete: ${transcriptPath}`);
+
   return transcriptPath;
 }
 
