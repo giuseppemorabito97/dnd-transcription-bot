@@ -56,11 +56,14 @@ export async function execute(interaction, client) {
     // Update session state
     session.recording = false;
 
+    // Get speaking segments for chronological ordering
+    const speakingSegments = session.recorder.getSpeakingSegments();
+
     // Generate transcription with speaker labels
     let transcriptPath;
     if (Object.keys(userAudioFiles).length > 0) {
-      // Use per-speaker transcription
-      transcriptPath = await transcribeWithSpeakers(userAudioFiles, session.sessionName);
+      // Use per-speaker transcription with chronological order
+      transcriptPath = await transcribeWithSpeakers(userAudioFiles, session.sessionName, speakingSegments);
     } else {
       // Fallback to mixed audio transcription
       transcriptPath = await transcribeAudio(audioFilePath, session.sessionName);

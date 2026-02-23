@@ -70,8 +70,8 @@ async function runWhisperCpp(mainPath, modelPath, audioPath) {
     const proc = spawn(mainPath, [
       '-m', modelPath,
       '-f', audioPath,
-      '--no-timestamps',
-      '-l', 'auto'
+      '-l', config.whisper.language || 'it',  // Use configured language
+      '--print-colors'  // Better output formatting
     ], {
       stdio: ['pipe', 'pipe', 'pipe']
     });
@@ -124,12 +124,13 @@ async function createPlaceholderTranscript(transcriptPath, sessionName, audioPat
 }
 
 /**
- * Transcribe audio for multiple users and combine with speaker labels
+ * Transcribe audio for multiple users and combine with speaker labels in chronological order
  * @param {Object} userAudioFiles - Map of userId -> {path, userName}
  * @param {string} sessionName - Name for the output transcript
+ * @param {Array} speakingSegments - Array of {userId, userName, startTime, endTime}
  * @returns {Promise<string>} Path to the generated transcript file
  */
-export async function transcribeWithSpeakers(userAudioFiles, sessionName) {
+export async function transcribeWithSpeakers(userAudioFiles, sessionName, speakingSegments = []) {
   // Ensure transcripts directory exists
   const transcriptsDir = join(PROJECT_ROOT, 'transcripts');
   if (!existsSync(transcriptsDir)) {
@@ -148,7 +149,7 @@ export async function transcribeWithSpeakers(userAudioFiles, sessionName) {
     return createPlaceholderTranscript(transcriptPath, sessionName, 'multiple files', 'Model not found');
   }
 
-  const userTranscripts = [];
+  const userTranscripts = new Map(); // userId -> transcript text
 
   // Transcribe each user's audio
   for (const [userId, { path, userName }] of Object.entries(userAudioFiles)) {
@@ -162,9 +163,8 @@ export async function transcribeWithSpeakers(userAudioFiles, sessionName) {
     try {
       const transcript = await runWhisperCpp(mainPath, modelPath, path);
       if (transcript && transcript.trim()) {
-        userTranscripts.push({
+        userTranscripts.set(userId, {
           userName,
-          userId,
           text: transcript.trim()
         });
         console.log(`[Whisper] Transcribed ${userName}: ${transcript.slice(0, 50)}...`);
@@ -174,17 +174,55 @@ export async function transcribeWithSpeakers(userAudioFiles, sessionName) {
     }
   }
 
-  // Format transcript with speaker labels
+  // Get unique speakers
+  const speakers = [...new Set([...userTranscripts.values()].map(u => u.userName))];
+
+  // Format transcript with speaker labels in chronological order
   let formattedTranscript = `D&D Session Transcript\n`;
   formattedTranscript += `Session: ${sessionName}\n`;
   formattedTranscript += `Date: ${new Date().toLocaleString()}\n`;
-  formattedTranscript += `Speakers: ${userTranscripts.map(u => u.userName).join(', ')}\n`;
+  formattedTranscript += `Speakers: ${speakers.join(', ')}\n`;
   formattedTranscript += `${'='.repeat(50)}\n\n`;
 
-  if (userTranscripts.length === 0) {
+  if (userTranscripts.size === 0) {
     formattedTranscript += `[No speech detected]\n`;
+  } else if (speakingSegments.length > 0) {
+    // Use speaking segments for chronological order
+    // Group consecutive segments by user and create conversation flow
+    let lastUserId = null;
+    let currentUserText = [];
+
+    for (const segment of speakingSegments) {
+      const userId = segment.userId;
+      const transcript = userTranscripts.get(userId);
+
+      if (!transcript) continue;
+
+      if (userId !== lastUserId && lastUserId !== null) {
+        // User changed, output previous user's text
+        const prevTranscript = userTranscripts.get(lastUserId);
+        if (prevTranscript && currentUserText.length > 0) {
+          const timestamp = formatTime(speakingSegments.find(s => s.userId === lastUserId)?.startTime || 0);
+          formattedTranscript += `[${timestamp}] **${prevTranscript.userName}:**\n`;
+          formattedTranscript += `${prevTranscript.text}\n\n`;
+          currentUserText = [];
+        }
+      }
+
+      currentUserText.push(segment);
+      lastUserId = userId;
+    }
+
+    // Output last user's text
+    if (lastUserId && userTranscripts.has(lastUserId)) {
+      const transcript = userTranscripts.get(lastUserId);
+      const timestamp = formatTime(speakingSegments.find(s => s.userId === lastUserId)?.startTime || 0);
+      formattedTranscript += `[${timestamp}] **${transcript.userName}:**\n`;
+      formattedTranscript += `${transcript.text}\n\n`;
+    }
   } else {
-    for (const { userName, text } of userTranscripts) {
+    // Fallback: just list by user
+    for (const [userId, { userName, text }] of userTranscripts) {
       formattedTranscript += `**${userName}:**\n`;
       formattedTranscript += `${text}\n\n`;
     }
@@ -194,5 +232,15 @@ export async function transcribeWithSpeakers(userAudioFiles, sessionName) {
   console.log(`[Whisper] Transcription with speakers complete: ${transcriptPath}`);
 
   return transcriptPath;
+}
+
+/**
+ * Format milliseconds to MM:SS
+ */
+function formatTime(ms) {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 

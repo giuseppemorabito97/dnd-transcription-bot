@@ -10,9 +10,50 @@ export class AudioMixer extends EventEmitter {
     super();
     this.streams = new Map();
     this.userPackets = new Map(); // userId -> [{packet, timestamp}]
+    this.speakingSegments = []; // [{userId, startTime, endTime}] - chronological order
     this.isRunning = false;
     this.silenceInterval = null;
     this.startTime = Date.now();
+  }
+
+  /**
+   * Record when a user starts speaking
+   */
+  markSpeakingStart(userId) {
+    const timestamp = Date.now() - this.startTime;
+    this.speakingSegments.push({
+      userId,
+      startTime: timestamp,
+      endTime: null
+    });
+  }
+
+  /**
+   * Record when a user stops speaking
+   */
+  markSpeakingEnd(userId) {
+    const timestamp = Date.now() - this.startTime;
+    // Find the most recent open segment for this user
+    for (let i = this.speakingSegments.length - 1; i >= 0; i--) {
+      if (this.speakingSegments[i].userId === userId && this.speakingSegments[i].endTime === null) {
+        this.speakingSegments[i].endTime = timestamp;
+        break;
+      }
+    }
+  }
+
+  /**
+   * Get speaking segments sorted by start time
+   */
+  getSpeakingSegments() {
+    // Close any open segments
+    const now = Date.now() - this.startTime;
+    for (const segment of this.speakingSegments) {
+      if (segment.endTime === null) {
+        segment.endTime = now;
+      }
+    }
+    return this.speakingSegments.sort((a, b) => a.startTime - b.startTime);
   }
 
   addStream(userId, opusStream) {

@@ -65,6 +65,9 @@ export class VoiceRecorder {
         },
       });
 
+      // Mark speaking start for chronological tracking
+      this.mixer.markSpeakingStart(userId);
+
       // Add stream to mixer (collects raw Opus packets per user)
       this.mixer.addStream(userId, audioStream);
       this.userStreams.set(userId, audioStream);
@@ -73,6 +76,8 @@ export class VoiceRecorder {
       audioStream.on('end', () => {
         const name = this.userNames.get(userId) || userId;
         console.log(`[Recorder] User ${name} stopped speaking`);
+        // Mark speaking end for chronological tracking
+        this.mixer.markSpeakingEnd(userId);
         this.userStreams.delete(userId);
         this.mixer.removeStream(userId);
       });
@@ -181,6 +186,18 @@ export class VoiceRecorder {
     }
 
     return results;
+  }
+
+  /**
+   * Get speaking segments in chronological order
+   */
+  getSpeakingSegments() {
+    const segments = this.mixer.getSpeakingSegments();
+    // Add user names to segments
+    return segments.map(seg => ({
+      ...seg,
+      userName: this.getUserName(seg.userId)
+    }));
   }
 
   async createEmptyWav(wavPath) {
