@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+
+# Audio files
+recordings/*.wav
+recordings/*.pcm
+
+# Transcripts (keep folder but ignore content)
+transcripts/*.txt
+
+# Whisper models
+*.bin
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*

@@ -1,0 +1,33 @@
+{
+  "name": "dnd-transcription-bot",
+  "version": "1.0.0",
+  "description": "Discord bot for D&D session audio transcription using Whisper",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "deploy-commands": "node src/deploy-commands.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "transcription",
+    "whisper",
+    "dnd"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@discordjs/opus": "^0.9.0",
+    "@discordjs/voice": "^0.18.0",
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.7",
+    "opus-decoder": "^0.7.11",
+    "prism-media": "^1.3.5",
+    "whisper-node": "^1.1.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
