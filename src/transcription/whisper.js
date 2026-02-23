@@ -71,7 +71,7 @@ async function runWhisperCpp(mainPath, modelPath, audioPath) {
       '-m', modelPath,
       '-f', audioPath,
       '-l', config.whisper.language || 'it',  // Use configured language
-      '--print-colors'  // Better output formatting
+      '--no-timestamps'  // Clean output without timestamps
     ], {
       stdio: ['pipe', 'pipe', 'pipe']
     });
@@ -187,44 +187,39 @@ export async function transcribeWithSpeakers(userAudioFiles, sessionName, speaki
   if (userTranscripts.size === 0) {
     formattedTranscript += `[No speech detected]\n`;
   } else if (speakingSegments.length > 0) {
-    // Use speaking segments for chronological order
-    // Group consecutive segments by user and create conversation flow
-    let lastUserId = null;
-    let currentUserText = [];
+    // Get the order of speakers based on their first speaking time
+    const speakerOrder = [];
+    const seenSpeakers = new Set();
 
     for (const segment of speakingSegments) {
-      const userId = segment.userId;
-      const transcript = userTranscripts.get(userId);
-
-      if (!transcript) continue;
-
-      if (userId !== lastUserId && lastUserId !== null) {
-        // User changed, output previous user's text
-        const prevTranscript = userTranscripts.get(lastUserId);
-        if (prevTranscript && currentUserText.length > 0) {
-          const timestamp = formatTime(speakingSegments.find(s => s.userId === lastUserId)?.startTime || 0);
-          formattedTranscript += `[${timestamp}] **${prevTranscript.userName}:**\n`;
-          formattedTranscript += `${prevTranscript.text}\n\n`;
-          currentUserText = [];
-        }
+      if (!seenSpeakers.has(segment.userId) && userTranscripts.has(segment.userId)) {
+        seenSpeakers.add(segment.userId);
+        speakerOrder.push({
+          userId: segment.userId,
+          startTime: segment.startTime
+        });
       }
-
-      currentUserText.push(segment);
-      lastUserId = userId;
     }
 
-    // Output last user's text
-    if (lastUserId && userTranscripts.has(lastUserId)) {
-      const transcript = userTranscripts.get(lastUserId);
-      const timestamp = formatTime(speakingSegments.find(s => s.userId === lastUserId)?.startTime || 0);
-      formattedTranscript += `[${timestamp}] **${transcript.userName}:**\n`;
-      formattedTranscript += `${transcript.text}\n\n`;
+    // Output transcripts in the order speakers first appeared
+    for (const { userId, startTime } of speakerOrder) {
+      const { userName, text } = userTranscripts.get(userId);
+      const cleanText = cleanTranscriptText(text);
+
+      if (cleanText) {
+        formattedTranscript += `[${formatTime(startTime)}] **${userName}:**\n`;
+        formattedTranscript += `${cleanText}\n\n`;
+      }
     }
   } else {
     // Fallback: just list by user
     for (const [userId, { userName, text }] of userTranscripts) {
-      formattedTranscript += `**${userName}:**\n`;
-      formattedTranscript += `${text}\n\n`;
+      const cleanText = cleanTranscriptText(text);
+
+      if (cleanText) {
+        formattedTranscript += `**${userName}:**\n`;
+        formattedTranscript += `${cleanText}\n\n`;
+      }
     }
   }
 
@@ -232,6 +227,28 @@ export async function transcribeWithSpeakers(userAudioFiles, sessionName, speaki
   console.log(`[Whisper] Transcription with speakers complete: ${transcriptPath}`);
 
   return transcriptPath;
+}
+
+/**
+ * Clean transcript text by removing ANSI codes, timestamps, and normalizing whitespace
+ */
+function cleanTranscriptText(text) {
+  return text
+    // Remove ANSI escape codes (with escape char)
+    .replace(/\x1b\[[0-9;]*m/g, '')
+    // Remove color codes without escape char: [38;5;123m, [0m, etc.
+    .replace(/\[38;5;\d+m/g, '')
+    .replace(/\[0m/g, '')
+    .replace(/\[\d+m/g, '')
+    .replace(/\[\d+;\d+m/g, '')
+    .replace(/\[\d+;\d+;\d+m/g, '')
+    // Remove whisper timestamps: [00:00:00.000 --> 00:00:08.000]
+    .replace(/\[\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}\]\s*/g, '')
+    // Remove any remaining bracket patterns that look like codes
+    .replace(/\[\d+[;:\d]*m?\]/g, '')
+    // Normalize multiple spaces to single space
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
