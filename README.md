@@ -1,14 +1,23 @@
 # D&D Transcription Bot
 
-A Discord bot that joins voice channels, records audio from D&D sessions, and generates transcriptions using Whisper AI.
+A Discord bot that joins voice channels, records audio from D&D sessions, and generates high-quality transcriptions with speaker identification using Whisper AI and Claude.
 
 ## Features
 
-- Join and leave voice channels on command
-- Record audio from all participants
-- Generate transcriptions with timestamps
-- Save transcripts as `.txt` files
-- Local transcription using Whisper (no cloud API needed)
+- **Voice Recording**: Join voice channels and record all participants
+- **Speaker Identification**: Automatically detects and labels who said what
+- **Chronological Order**: Transcripts show conversation flow in order of speaking
+- **Whisper AI**: Local transcription using Whisper large-v3 model (best quality)
+- **Claude Enhancement**: AI post-processing to improve transcript readability
+- **Italian Optimized**: Configured for Italian language (easily changeable)
+- **Dual Output**: Get both raw and AI-enhanced transcripts
+
+## How It Works
+
+1. Bot joins your voice channel and records each speaker separately
+2. Whisper (large-v3) transcribes each speaker's audio
+3. Claude processes the transcript to fix errors and improve readability
+4. You receive both the original and enhanced versions
 
 ## Prerequisites
 
@@ -16,7 +25,8 @@ A Discord bot that joins voice channels, records audio from D&D sessions, and ge
 
 - Node.js 18.x or higher
 - FFmpeg (for audio processing)
-- Python 3.x (for Whisper, if not using whisper-node)
+- ~10GB RAM (for Whisper large-v3 model)
+- ~3GB disk space (for model files)
 
 ### Install FFmpeg
 
@@ -32,16 +42,6 @@ sudo apt update && sudo apt install ffmpeg
 
 **Windows:**
 Download from https://ffmpeg.org/download.html and add to PATH.
-
-### Install Whisper
-
-**Option 1: Python Whisper (recommended for quality)**
-```bash
-pip install openai-whisper
-```
-
-**Option 2: whisper-node (used by default)**
-The bot will automatically use the `whisper-node` npm package, which downloads models on first run.
 
 ## Discord Bot Setup
 
@@ -63,8 +63,9 @@ The bot will automatically use the `whisper-node` npm package, which downloads m
 
 ## Installation
 
-1. Clone or download this project:
+1. Clone the repository:
 ```bash
+git clone https://github.com/giuseppemorabito97/dnd-transcription-bot.git
 cd dnd-transcription-bot
 ```
 
@@ -83,19 +84,27 @@ cp .env.example .env
 DISCORD_TOKEN=your_bot_token_here
 CLIENT_ID=your_application_client_id_here
 GUILD_ID=your_discord_server_id_here
-WHISPER_MODEL=base
+WHISPER_MODEL=large-v3
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
 ```
 
 **Finding your IDs:**
 - `CLIENT_ID`: In Developer Portal > Your App > "Application ID"
 - `GUILD_ID`: Right-click your Discord server > "Copy Server ID" (Enable Developer Mode in Discord settings first)
+- `ANTHROPIC_API_KEY`: Get it from [console.anthropic.com](https://console.anthropic.com)
 
-5. Deploy slash commands:
+5. Download the Whisper model (first run will do this automatically, or manually):
+```bash
+cd node_modules/whisper-node/dist/cpp/whisper.cpp
+bash models/download-ggml-model.sh large-v3
+```
+
+6. Deploy slash commands:
 ```bash
 npm run deploy-commands
 ```
 
-6. Start the bot:
+7. Start the bot:
 ```bash
 npm start
 ```
@@ -119,37 +128,97 @@ npm start
 3. Use `/start` to begin recording
 4. Play your D&D session
 5. Use `/stop` when finished
-6. The bot will generate a transcript and post it in the channel
+6. The bot will:
+   - Transcribe each speaker with Whisper
+   - Process with Claude for better readability
+   - Post both versions in the channel
 
-### Output
+### Output Example
 
-Transcripts are saved to the `transcripts/` folder with the format:
+**Original (Whisper):**
 ```
 D&D Session Transcript
 Session: session_2024-01-15T20-30-00
 Date: 1/15/2024, 8:30:00 PM
+Speakers: Paolo, Giuseppe, Dario
 ==================================================
 
-[00:00 - 00:05]
-Welcome everyone to tonight's session...
+[00:01] **Paolo:**
+ok quindi noi dobbiamo andare a scorrere bene per favore dai dai dai
 
-[00:05 - 00:12]
-Last time, our heroes found themselves...
+[00:05] **Giuseppe:**
+è una scorrina di bene per farlo dove che prendo cosa
+```
+
+**Revised (Claude):**
+```
+D&D Session Transcript (Revised by Claude)
+Session: session_2024-01-15T20-30-00
+==================================================
+
+[00:01] **Paolo:**
+Ok, quindi noi dobbiamo andare a esplorare. Bene, per favore, dai dai dai!
+
+[00:05] **Giuseppe:**
+È una cosa importante da fare. Dove prendo cosa?
 ```
 
 ## Whisper Models
 
-| Model | Quality | Speed | RAM Usage |
-|-------|---------|-------|-----------|
-| `tiny` | Basic | Fastest | ~75MB |
-| `base` | Good | Fast | ~150MB |
-| `small` | Better | Medium | ~500MB |
-| `medium` | High | Slow | ~1.5GB |
-| `large` | Best | Slowest | ~3GB |
+| Model | Quality | Speed | RAM Usage | Disk |
+|-------|---------|-------|-----------|------|
+| `tiny` | Basic | Fastest | ~1GB | 75MB |
+| `base` | Good | Fast | ~1GB | 150MB |
+| `small` | Better | Medium | ~2GB | 500MB |
+| `medium` | High | Slow | ~5GB | 1.5GB |
+| `large-v3` | **Best** | Slowest | ~10GB | 3GB |
 
-Set the model in `.env`:
+Default is `large-v3` for best Italian recognition. Change in `.env`:
 ```env
-WHISPER_MODEL=small
+WHISPER_MODEL=medium
+```
+
+## Configuration
+
+### Language
+
+Default language is Italian. To change, edit `src/config.js`:
+```javascript
+whisper: {
+  model: process.env.WHISPER_MODEL || 'large-v3',
+  language: process.env.WHISPER_LANGUAGE || 'en', // Change to your language
+},
+```
+
+### Disable Claude Processing
+
+If you don't want Claude post-processing, remove or leave empty the `ANTHROPIC_API_KEY` in `.env`. The bot will still work with just Whisper.
+
+## Project Structure
+
+```
+dnd-transcription-bot/
+├── package.json
+├── .env                    # Your configuration (create from .env.example)
+├── .env.example            # Template for environment variables
+├── src/
+│   ├── index.js           # Bot entry point
+│   ├── config.js          # Configuration loader
+│   ├── deploy-commands.js # Slash command registration
+│   ├── commands/
+│   │   ├── join.js        # /join command
+│   │   ├── leave.js       # /leave command
+│   │   ├── start.js       # /start command
+│   │   └── stop.js        # /stop command
+│   ├── voice/
+│   │   ├── recorder.js    # Audio recording handler
+│   │   └── audioStream.js # WASM Opus decoder & audio mixing
+│   └── transcription/
+│       ├── whisper.js     # Whisper integration
+│       └── claudeProcessor.js # Claude AI enhancement
+├── recordings/            # Temporary audio files (per-user WAV)
+├── transcripts/           # Original Whisper transcripts
+└── transcripts-revised/   # Claude-enhanced transcripts
 ```
 
 ## Troubleshooting
@@ -169,49 +238,38 @@ npm install
 - Check that the bot has "Connect" and "Speak" permissions
 - Try disconnecting and reconnecting the bot
 
-### Transcription fails
-- Install Python Whisper as a fallback: `pip install openai-whisper`
-- Check available disk space (models can be large)
-- Try a smaller model in `.env`
+### Transcription quality is poor
+- Make sure you're using `large-v3` model
+- Check that the audio files are being saved (look in `recordings/`)
+- Ensure speakers are close to their microphones
 
-### @discordjs/opus installation issues
+### Claude processing fails
+- Verify your `ANTHROPIC_API_KEY` is correct
+- Check your Anthropic account has credits
+- The original transcript will still be available
 
-**macOS:**
+### Whisper model not found
 ```bash
-brew install opus
-npm rebuild @discordjs/opus
+cd node_modules/whisper-node/dist/cpp/whisper.cpp
+bash models/download-ggml-model.sh large-v3
 ```
 
-**Ubuntu/Debian:**
-```bash
-sudo apt install libopus-dev
-npm rebuild @discordjs/opus
-```
+### High memory usage
+- Use a smaller model: `WHISPER_MODEL=medium` or `small`
+- The `large-v3` model needs ~10GB RAM during transcription
 
-## Project Structure
+## Tech Stack
 
-```
-dnd-transcription-bot/
-├── package.json
-├── .env                    # Your configuration (create from .env.example)
-├── src/
-│   ├── index.js           # Bot entry point
-│   ├── config.js          # Configuration loader
-│   ├── deploy-commands.js # Slash command registration
-│   ├── commands/
-│   │   ├── join.js        # /join command
-│   │   ├── leave.js       # /leave command
-│   │   ├── start.js       # /start command
-│   │   └── stop.js        # /stop command
-│   ├── voice/
-│   │   ├── recorder.js    # Audio recording handler
-│   │   └── audioStream.js # Audio stream processing
-│   └── transcription/
-│       └── whisper.js     # Whisper integration
-├── recordings/            # Temporary audio files
-└── transcripts/           # Generated transcripts
-```
+- **Discord.js** - Discord bot framework
+- **@discordjs/voice** - Voice channel connections
+- **opus-decoder** - WASM-based Opus audio decoding
+- **whisper.cpp** - Local Whisper AI transcription
+- **@anthropic-ai/sdk** - Claude API for text enhancement
 
 ## License
 
 MIT
+
+## Credits
+
+Built with Whisper by OpenAI and Claude by Anthropic.
