@@ -1,0 +1,16 @@
+D&D Session Transcript (Revised by Ollama/llama3.2)
+Original: session_2026-02-24T00-42-10-994Z
+Revised: 2/24/2026, 1:45:25 AM
+==================================================
+
+D&D Session Transcript
+Session: session_2026-02-24T00-42-10-994Z
+Date: 2/24/2026, 1:45:10 AM
+Speakers: Paolo Fontana, Dario Romano, Giuseppe Morabito
+==================================================
+
+[00:00] **Paolo Fontana:** Se tu ve l'embeddi, oh quel python zio bastardo, vabbè, sti cazzi. Ok, allora ragazzi, facciamo una cosa. Facciamo finta di giocare, effettivamente. Facciamo finta di giocare, effettivamente. Di giocare, ok? No, no, vabbè, faccio io. Leggiamo leggo un pezzo del di un modulo a caso che c'ho io. No, di un modulo a caso che c'ho io. Aspetta, questo è quello che vi leggo, cari amici. Abbiamo una cura della strada, la maledizione di Strad. Il carro scilla improvvisamente come se qualcosa di grosso si fosse scagliato contro la parete interna. Sentite lo scricchiolito del legno, il raschiere del metallo e il ringhio di qualcosa di disumano. A un esame più attento, vedete che i lati del carro sono macchietti di sangue. È possibile vedere anche un'iscrizione sul terreno della porta che dice "Lascia di condurre dell'oscurità alla luce". No, no, è un altro. Qua siamo a Vallaghi, prati nel ridente Shadowfell. Dentro al carro c'è una tigre dei denti a sciabola. Claudio Iero con 84 punti ferita indossa una mezza creatura creata su misura, ca 17, e è stata addestrata per dare la caccia ai servitori vistani di Strad. Questa tigre ha un grado di sfida 3. Eh, questi sono però abbastanza complessi. Eh, ti ho mandato comunque su Telegram Peppe, la lista di cose che secondo me sono fatte per tipo vettorializzare. Sta cosa per avere il miglior riassunto possibile. C'è comunque quella.
+
+[00:01] **Dario Romano:** Quello che è più piacere, quello che può più piacere. Mi pare esattamente quello che dobbiamo fare domani Shadow of Hell anche Strad.
+
+[00:05] **Giuseppe Morabito:** Inizio il bot con Mistral come modello invece di Allama 3.2. Una cosa, non c'è fazzo. La vino con me, niente. Bello, bello. Yes, sir. Stoppiamo intanto, vediamo che succede. Yes, sir.

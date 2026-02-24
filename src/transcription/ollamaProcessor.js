@@ -7,7 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
 
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'mistral';
 
 /**
  * Process a transcript with Ollama to make it more readable
@@ -35,18 +35,24 @@ export async function processWithOllama(transcriptPath, sessionName) {
 Ecco una trascrizione automatica di una sessione. Il testo potrebbe contenere errori di riconoscimento vocale, parole incomprensibili, o frasi spezzate.
 
 Il tuo compito è:
-1. Correggere errori evidenti di trascrizione
-2. Rendere le frasi più leggibili e coerenti
+1. Correggere errori evidenti di trascrizione (parole storpiate, errori di riconoscimento)
+2. Rendere le frasi più leggibili e coerenti in italiano corretto
 3. Mantenere il senso originale di quello che è stato detto
-4. Mantenere i nomi degli speaker e i timestamp
-5. Se una parte è incomprensibile, segnalala con [incomprensibile]
-6. NON inventare contenuti che non sono presenti
-7. Mantieni il formato con speaker e timestamp
+4. Se una parte è davvero incomprensibile, segnalala con [incomprensibile]
+5. NON inventare contenuti che non sono presenti
+6. Rimuovi parole in altre lingue che sono chiaramente errori di riconoscimento
+
+FORMATO OUTPUT RICHIESTO (una riga per ogni intervento):
+NomeSpeaker [MM:SS]: testo corretto dell'intervento
+
+Esempio:
+Paolo_Fontana [0:13]: Questo è il dungeon che avete fatto finora, dovete scegliere dove proseguire.
+Giuseppe_Morabito [0:21]: Aspetta che controllo la mappa.
 
 TRASCRIZIONE ORIGINALE:
 ${originalTranscript}
 
-Rispondi SOLO con la trascrizione migliorata, senza commenti aggiuntivi.`;
+Rispondi SOLO con la trascrizione migliorata nel formato richiesto, senza commenti aggiuntivi.`;
 
     // Call Ollama API
     const response = await fetch(`${OLLAMA_URL}/api/generate`, {
