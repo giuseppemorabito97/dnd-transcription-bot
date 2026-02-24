@@ -4,17 +4,21 @@ import { fileURLToPath } from "url";
 import { existsSync, mkdirSync } from "fs";
 import {
   chunkTranscript,
+  chunkTranscriptByScene,
   CHUNK_SIZE_CHARS,
   MAX_CONTEXT_CHARS,
   MAX_CHUNKS_DEV,
 } from "./utils/chunking.js";
 import {
-  embedChunks,
   ollamaGenerate,
   OLLAMA_MODEL,
   OLLAMA_URL,
 } from "./utils/ollamaClient.js";
 import { normalizeTranscript } from "./utils/transcriptFormat.js";
+import {
+  boundariesFromEndTimes,
+  parseTimestampToSeconds,
+} from "./utils/sceneAssignment.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..", "..");
@@ -32,19 +36,68 @@ function getMasterLabel(masterUsername) {
  * @param {string} [masterUsername]
  * @returns {Promise<string>}
  */
+
+const getSummaryPrompt = async (text, masterUsername) => {
+  try {
+    const sum = await ollamaGenerate(
+      `Estrai SOLO questi elementi dal segmento. ${masterUsername}
+- decisioni del party / piani (“facciamo X”)
+- eventi irreversibili (“si apre la porta”, “muore X”, “otteniamo Y”)
+- loot/oggetti importanti
+- informazioni di trama (NPC, fazioni, minacce) e crea un breve riassunto da queste informazioni
+
+REGOLE OBBLIGATORIE:
+- Usa i timestamp per orientarti nel testo.
+- IGNORA IL COMBATTIMENTO.
+- IGNORA COMPLETAMENTE le problematiche tecniche: microfono, audio, connessione, lag, “non si sente”, “si è disconnesso”, problemi di registrazione/streaming, ritardi, echo, rumori. Non citarle mai nel riassunto.
+- PREFERISCI USARE LE LINEE DEL MASTER/NARRATORE.
+
+\n\n${text}\n\nRiassunto:`,
+      512,
+    );
+    return sum;
+  } catch (error) {
+    console.error("[Ollama] Error generating summary:", error.message);
+    return "";
+  }
+};
+
+const SCENE_INTERVAL_SECONDS = 4 * 60; // 4 minuti per scena
+
 async function generateSummary(text, masterUsername) {
   const trimmed = text.trim();
   if (!trimmed) return "";
   const masterLabel = getMasterLabel(masterUsername);
 
-  if (trimmed.length <= MAX_CONTEXT_CHARS) {
-    return ollamaGenerate(
-      `Sei un assistente. Riassumi in italiano in modo chiaro e conciso questa trascrizione di una sessione di D&D. ${masterLabel} Elenca i punti principali (eventi, decisioni, personaggi rilevanti). Non inventare nulla, scrivi per punti principali e ignora le scene di combattimento. Ignora tutto ciò che non è rilevante per il riassunto. Se non è una decisione o un fatto significativo, non scrivere nulla.\n\nTRASCRIZIONE:\n${trimmed}\n\nRIASSUNTO:`,
-      1024,
-    );
+  let maxTimestamp = 0;
+  for (const line of trimmed.split("\n")) {
+    const timestamp = line.split(" ")[0];
+    const sec = parseTimestampToSeconds(timestamp);
+    if (!Number.isNaN(sec) && sec > maxTimestamp) maxTimestamp = sec;
   }
 
-  let chunks = chunkTranscript(trimmed, Math.floor(MAX_CONTEXT_CHARS / 2));
+  const boundaries = [];
+  for (let t = 0; t < maxTimestamp; t += SCENE_INTERVAL_SECONDS) {
+    boundaries.push({ start: t, end: t + SCENE_INTERVAL_SECONDS });
+  }
+  if (boundaries.length === 0 && maxTimestamp > 0) {
+    boundaries.push({ start: 0, end: maxTimestamp + 1 });
+  }
+
+  console.log(boundaries);
+
+  if (trimmed.length <= MAX_CONTEXT_CHARS) {
+    return await getSummaryPrompt(trimmed, masterLabel);
+  }
+
+  const { chunks: sceneChunks } = chunkTranscriptByScene(
+    trimmed,
+    MAX_CONTEXT_CHARS,
+    boundaries,
+  );
+
+  console.log(sceneChunks.length);
+  let chunks = sceneChunks;
   if (chunks.length > MAX_CHUNKS_DEV) {
     chunks = chunks.slice(0, MAX_CHUNKS_DEV);
     console.log(
@@ -55,15 +108,9 @@ async function generateSummary(text, masterUsername) {
 
   for (let i = 0; i < chunks.length; i++) {
     console.log(`[Ollama] Summary chunk ${i + 1}/${chunks.length}...`);
-    const sum = await ollamaGenerate(
-      `Estrai SOLO questi elementi dal segmento. ${masterLabel}
-- decisioni del party / piani (“facciamo X”)
-- eventi irreversibili (“si apre la porta”, “muore X”, “otteniamo Y”)
-- loot/oggetti importanti
-- informazioni di trama (NPC, fazioni, minacce) e crea un breve riassunto da queste informazioni
-        Usa i timestamp per orientarti nel testo.\n\n${chunks[i]}\n\nRiassunto:`,
-      512,
-    );
+
+    console.log(chunks[i]);
+    const sum = await getSummaryPrompt(chunks[i], masterLabel);
 
     console.log(sum);
     partialSummaries.push(sum);
@@ -75,47 +122,65 @@ async function generateSummary(text, masterUsername) {
 }
 
 async function generateFinalSummary(summary, masterUsername) {
-  const masterLabel = masterUsername || process.env.MASTER_USERNAME
-    ? `Lo speaker "${masterUsername || process.env.MASTER_USERNAME}" è il master: non trattarlo come personaggio ma come narratore (le sue battute = descrizioni, NPC, regole; nel riassunto usare voce narrativa, non attribuire le sue battute a un PG).`
-    : "Il master/narratore non va trattato come personaggio ma come narratore; nel riassunto usare voce narrativa.";
-  const prompt = `Leggi questo riassunto. ${masterLabel} Correggi gli errori di trascrizione e rendi il testo più leggibile e coerente in italiano. Agisci pensando -less is more-. Se qualcosa non ti torna, non ti sembra utile a chi lo legge, rimuovila. Crea un racconto coerente con la trascrizione. Massimo 1800 caratteri.\n\nRIASSUNTO:\n${summary}\n\nRIASSUNTO FINALE:`;
+  const masterLabel = getMasterLabel(masterUsername);
+  const prompt = `Leggi questo riassunto. ${masterLabel} Correggi gli errori di trascrizione e rendi il testo più leggibile e coerente in italiano. Agisci pensando -less is more-. Se qualcosa non ti torna, non ti sembra utile a chi lo legge, rimuovila. Elimina qualsiasi riferimento a problemi tecnici (microfono, audio, connessione, lag, disconnessioni, registrazione). Crea un racconto coerente con la trascrizione. Massimo 1800 caratteri.\n\nRIASSUNTO:\n${summary}\n\nRIASSUNTO FINALE:`;
   return ollamaGenerate(prompt, 1024);
 }
 
 /**
  * Esegue chunking + embedding + riassunto su un testo già rivisto o grezzo.
- * Riusa la stessa logica sia per il flusso completo, sia per sessioni vecchie.
+ * Se options.sceneBoundaries o options.sceneEndTimes sono forniti, i chunk sono costruiti per scena (s_k <= start < e_k).
  * @param {string} text
  * @param {string} sessionName
- * @param {{ masterUsername?: string }} [options]
+ * @param {{ masterUsername?: string, sceneBoundaries?: Array<{ start: number, end: number }>, sceneEndTimes?: number[] }} [options]
  * @returns {Promise<{ summary: string | null }>}
  */
 async function chunkEmbedAndSummarize(text, sessionName, options = {}) {
-  const { masterUsername } = options;
+  const { masterUsername, sceneBoundaries, sceneEndTimes } = options;
   const revisedDir = join(PROJECT_ROOT, "transcripts-revised");
+
   if (!existsSync(revisedDir)) {
     mkdirSync(revisedDir, { recursive: true });
   }
 
-  let chunks = chunkTranscript(text, CHUNK_SIZE_CHARS);
+  const boundaries =
+    sceneBoundaries ??
+    (sceneEndTimes?.length ? boundariesFromEndTimes(sceneEndTimes) : null);
+
+  let chunks;
+  let sceneIds = null;
+  if (boundaries?.length) {
+    const out = chunkTranscriptByScene(text, CHUNK_SIZE_CHARS, boundaries);
+    chunks = out.chunks;
+    sceneIds = out.sceneIds;
+    console.log(
+      `[Ollama] Chunks by scene: ${chunks.length} (sceneIds: ${sceneIds.join(", ")})`,
+    );
+  } else {
+    chunks = chunkTranscript(text, CHUNK_SIZE_CHARS);
+  }
+
   if (chunks.length > MAX_CHUNKS_DEV) {
     chunks = chunks.slice(0, MAX_CHUNKS_DEV);
+    if (sceneIds) sceneIds = sceneIds.slice(0, MAX_CHUNKS_DEV);
     console.log(`[Ollama] Development: limiting to ${MAX_CHUNKS_DEV} chunks`);
   }
+
   console.log(
     `[Ollama] Chunks: ${chunks.length} (max ${CHUNK_SIZE_CHARS} chars)`,
   );
 
-  const embeddings = await embedChunks(chunks);
-  if (embeddings.length > 0) {
-    const embedPath = join(revisedDir, `${sessionName}_embeddings.json`);
-    await writeFile(
-      embedPath,
-      JSON.stringify({ chunks, embeddings }, null, 2),
-      "utf-8",
-    );
-    console.log(`[Ollama] Embeddings saved: ${embedPath}`);
-  }
+  // const embeddings = await embedChunks(chunks);
+
+  // if (embeddings.length > 0) {
+  //   const embedPath = join(revisedDir, `${sessionName}_embeddings.json`);
+  //   const payload =
+  //     sceneIds != null
+  //       ? { chunks, sceneIds, embeddings }
+  //       : { chunks, embeddings };
+  //   await writeFile(embedPath, JSON.stringify(payload, null, 2), "utf-8");
+  //   console.log(`[Ollama] Embeddings saved: ${embedPath}`);
+  // }
 
   console.log("[Ollama] Generating summary...");
   let summary = "";
@@ -135,8 +200,12 @@ async function chunkEmbedAndSummarize(text, sessionName, options = {}) {
  * @param {{ masterUsername?: string }} [options]
  * @returns {Promise<{ revisedPath: string | null, summary: string | null }>}
  */
-export async function processWithOllama(transcriptPath, sessionName, options = {}) {
-  const { masterUsername } = options;
+export async function processWithOllama(
+  transcriptPath,
+  sessionName,
+  options = {},
+) {
+  const { masterUsername, sceneBoundaries, sceneEndTimes } = options;
   const masterLabel = getMasterLabel(masterUsername);
 
   const revisedDir = join(PROJECT_ROOT, "transcripts-revised");
@@ -216,11 +285,11 @@ Rispondi SOLO con la trascrizione migliorata nel formato richiesto, senza commen
     }
   }
 
-  // Chunking + embed + summary sul testo rivisto
+  // Chunking + embed + summary sul testo rivisto (con scene boundaries se forniti)
   const { summary } = await chunkEmbedAndSummarize(
     revisedTranscript,
     sessionName,
-    { masterUsername },
+    { masterUsername, sceneBoundaries, sceneEndTimes },
   );
 
   // File finale: header + trascrizione + riassunto
@@ -255,7 +324,11 @@ Rispondi SOLO con la trascrizione migliorata nel formato richiesto, senza commen
  * @param {{ masterUsername?: string }} [options]
  * @returns {Promise<{ summary: string | null, summaryPath: string | null }>}
  */
-export async function summarizeTranscriptFile(transcriptPath, sessionName, options = {}) {
+export async function summarizeTranscriptFile(
+  transcriptPath,
+  sessionName,
+  options = {},
+) {
   const revisedDir = join(PROJECT_ROOT, "transcripts-revised");
 
   if (!existsSync(revisedDir)) {
@@ -277,7 +350,11 @@ export async function summarizeTranscriptFile(transcriptPath, sessionName, optio
     const rawText = await readFile(transcriptPath, "utf-8");
     const text = normalizeTranscript(rawText);
 
-    const { summary } = await chunkEmbedAndSummarize(text, sessionName, { masterUsername });
+    const { summary } = await chunkEmbedAndSummarize(text, sessionName, {
+      masterUsername,
+      sceneBoundaries: options.sceneBoundaries,
+      sceneEndTimes: options.sceneEndTimes,
+    });
     if (!summary) {
       return { summary: null, summaryPath: null };
     }

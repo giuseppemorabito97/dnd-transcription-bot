@@ -9,6 +9,7 @@ const OLLAMA_EMBED_MODEL = process.env.OLLAMA_EMBED_MODEL || "nomic-embed-text";
  */
 export async function embedChunks(chunks) {
   if (!chunks.length) return [];
+
   try {
     const res = await fetch(`${OLLAMA_URL}/api/embed`, {
       method: "POST",
