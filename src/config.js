@@ -15,7 +15,7 @@ export default {
     guildId: process.env.GUILD_ID,
   },
   whisper: {
-    model: process.env.WHISPER_MODEL || 'medium',
+    model: process.env.WHISPER_MODEL || 'large-v3',
     language: process.env.WHISPER_LANGUAGE || 'it', // Italian
   },
   paths: {
