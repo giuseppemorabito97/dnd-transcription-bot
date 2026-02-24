@@ -19,8 +19,11 @@ export default {
   whisper: {
     model: process.env.WHISPER_MODEL || 'large-v3',
     language: process.env.WHISPER_LANGUAGE || 'it', // Italian
-    /** Durata in secondi di ogni chunk audio (0 = nessun chunking). Es. 600 = 10 min. */
-    chunkDurationSeconds: parseInt(process.env.WHISPER_CHUNK_DURATION_SECONDS || '0', 10) || 0,
+    /** Durata in secondi di ogni chunk audio (0 = nessun chunking). Default 600 = 10 min per ridurre ripetizioni/hallucinations. */
+    chunkDurationSeconds: (() => {
+      const v = parseInt(process.env.WHISPER_CHUNK_DURATION_SECONDS ?? '600', 10);
+      return Number.isFinite(v) && v >= 0 ? v : 600;
+    })(),
   },
   paths: {
     root: rootDir,

@@ -13,6 +13,9 @@ transcripts/*.txt
 transcripts-revised/*.txt
 transcripts-revised/*_embeddings.json
 
+# Whisper chunking temp files
+tmp/
+
 # Whisper models
 *.bin
 

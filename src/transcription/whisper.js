@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, rmSync } from 'fs';
 import { writeFile, readFile } from 'fs/promises';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -30,6 +30,76 @@ function getWhisperPaths() {
 }
 
 /**
+ * Get duration in seconds of an audio file via ffprobe
+ * @param {string} audioPath
+ * @returns {Promise<number>}
+ */
+function getAudioDurationSeconds(audioPath) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('ffprobe', [
+      '-v', 'error',
+      '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      audioPath
+    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', d => { stdout += d.toString(); });
+    proc.stderr.on('data', d => { stderr += d.toString(); });
+    proc.on('close', code => {
+      if (code !== 0) {
+        reject(new Error(`ffprobe failed: ${stderr || stdout}`));
+        return;
+      }
+      const sec = parseFloat(stdout.trim(), 10);
+      if (Number.isFinite(sec) && sec >= 0) resolve(sec);
+      else reject(new Error(`Invalid duration: ${stdout.trim()}`));
+    });
+    proc.on('error', err => reject(err));
+  });
+}
+
+/**
+ * Split audio into fixed-duration chunks with ffmpeg
+ * @param {string} audioPath
+ * @param {number} chunkDurationSeconds
+ * @param {string} tempDir - directory for chunk files (must exist)
+ * @returns {Promise<string[]>} paths to chunk WAV files in order
+ */
+async function splitAudioIntoChunks(audioPath, chunkDurationSeconds, tempDir) {
+  const duration = await getAudioDurationSeconds(audioPath);
+  const chunkPaths = [];
+  let start = 0;
+  let index = 0;
+  while (start < duration) {
+    const chunkPath = join(tempDir, `chunk_${String(index).padStart(3, '0')}.wav`);
+    await new Promise((resolve, reject) => {
+      const proc = spawn('ffmpeg', [
+        '-y',
+        '-i', audioPath,
+        '-ss', String(start),
+        '-t', String(chunkDurationSeconds),
+        '-acodec', 'pcm_s16le',
+        '-ar', '16000',
+        '-ac', '1',
+        chunkPath
+      ], { stdio: ['pipe', 'pipe', 'pipe'] });
+      let stderr = '';
+      proc.stderr.on('data', d => { stderr += d.toString(); });
+      proc.on('close', code => {
+        if (code === 0 && existsSync(chunkPath)) resolve();
+        else reject(new Error(`ffmpeg chunk failed: ${stderr.slice(-500)}`));
+      });
+      proc.on('error', err => reject(err));
+    });
+    chunkPaths.push(chunkPath);
+    start += chunkDurationSeconds;
+    index += 1;
+  }
+  return chunkPaths;
+}
+
+/**
  * Transcribe audio file using Whisper
  * @param {string} audioPath - Path to the WAV audio file
  * @param {string} sessionName - Name for the output transcript
@@ -56,16 +126,37 @@ export async function transcribeAudio(audioPath, sessionName) {
     return createPlaceholderTranscript(transcriptPath, sessionName, audioPath, 'Model not found');
   }
 
+  const chunkDurationSeconds = config.whisper.chunkDurationSeconds || 0;
+  const useChunking = chunkDurationSeconds > 0;
+
   try {
-    // Use whisper.cpp directly
-    const transcript = await runWhisperCpp(mainPath, modelPath, audioPath);
+    let transcript;
+    if (useChunking) {
+      const tmpDir = join(PROJECT_ROOT, 'tmp', `whisper_${sessionName}_${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+      try {
+        const chunkPaths = await splitAudioIntoChunks(audioPath, chunkDurationSeconds, tmpDir);
+        console.log(`[Whisper] Split into ${chunkPaths.length} chunks of ${chunkDurationSeconds}s`);
+        const parts = [];
+        for (let i = 0; i < chunkPaths.length; i++) {
+          console.log(`[Whisper] Transcribing chunk ${i + 1}/${chunkPaths.length}...`);
+          const part = await runWhisperCpp(mainPath, modelPath, chunkPaths[i]);
+          if (part && part.trim()) parts.push(part.trim());
+        }
+        transcript = parts.join('\n\n');
+      } finally {
+        if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true });
+      }
+    } else {
+      transcript = await runWhisperCpp(mainPath, modelPath, audioPath);
+    }
 
     // Format transcript
     let formattedTranscript = `D&D Session Transcript\n`;
     formattedTranscript += `Session: ${sessionName}\n`;
     formattedTranscript += `Date: ${new Date().toLocaleString()}\n`;
     formattedTranscript += `${'='.repeat(50)}\n\n`;
-    formattedTranscript += transcript;
+    formattedTranscript += transcript || '';
 
     await writeFile(transcriptPath, formattedTranscript, 'utf-8');
     console.log(`[Whisper] Transcription complete: ${transcriptPath}`);

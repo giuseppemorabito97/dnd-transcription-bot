@@ -203,6 +203,16 @@ whisper: {
 },
 ```
 
+### Whisper chunking (default: 10 min)
+
+Long audio is split into 10-minute chunks before transcription to reduce Whisper repetitions/hallucinations. To change or disable:
+
+- **10 minutes** (default): `WHISPER_CHUNK_DURATION_SECONDS=600` or leave unset
+- **Disable chunking**: `WHISPER_CHUNK_DURATION_SECONDS=0`
+- **Other duration**: e.g. `WHISPER_CHUNK_DURATION_SECONDS=300` for 5 minutes
+
+Requires `ffmpeg` and `ffprobe` on PATH.
+
 ### Disable Ollama Processing
 
 If you don't want Ollama post-processing, stop the Ollama service. The bot will still work with just Whisper (original transcript only).
