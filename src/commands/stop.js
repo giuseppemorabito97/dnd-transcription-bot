@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, AttachmentBuilder } from 'discord.js';
 import { getVoiceConnection } from '@discordjs/voice';
 import { transcribeAudio, transcribeWithSpeakers } from '../transcription/whisper.js';
-import { processWithClaude } from '../transcription/claudeProcessor.js';
+import { processWithOllama } from '../transcription/ollamaProcessor.js';
 import { existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import config from '../config.js';
@@ -71,17 +71,17 @@ export async function execute(interaction, client) {
     }
 
     if (transcriptPath && existsSync(transcriptPath)) {
-      // Update user that we're now processing with Claude
+      // Update user that we're now processing with Ollama
       await interaction.editReply({
         content: `⏹️ **Recording stopped**\n` +
           `Duration: ${minutes}m ${seconds}s\n` +
           `Speakers detected: ${userCount}\n\n` +
           `✅ Transcription complete!\n` +
-          `🤖 Processing with Claude for better readability...`,
+          `🦙 Processing with Ollama for better readability...`,
       });
 
-      // Process with Claude to improve readability
-      const revisedPath = await processWithClaude(transcriptPath, session.sessionName);
+      // Process with Ollama to improve readability
+      const revisedPath = await processWithOllama(transcriptPath, session.sessionName);
 
       // Prepare attachments
       const files = [];
@@ -112,12 +112,12 @@ export async function execute(interaction, client) {
         ? `✅ **Transcription complete!**\n` +
           `Session: \`${session.sessionName}\`\n` +
           `Duration: ${minutes}m ${seconds}s\n\n` +
-          `📄 **Original transcript** + 🤖 **Revised by Claude**\n\n` +
+          `📄 **Original transcript** + 🦙 **Revised by Ollama**\n\n` +
           `**Preview (Revised):**\n\`\`\`\n${revisedPreview}\n\`\`\``
         : `✅ **Transcription complete!**\n` +
           `Session: \`${session.sessionName}\`\n` +
           `Duration: ${minutes}m ${seconds}s\n\n` +
-          `⚠️ Claude processing failed, original transcript attached.`;
+          `⚠️ Ollama processing failed, original transcript attached.`;
 
       await interaction.editReply({
         content,

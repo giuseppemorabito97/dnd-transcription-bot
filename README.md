@@ -1,6 +1,6 @@
 # D&D Transcription Bot
 
-A Discord bot that joins voice channels, records audio from D&D sessions, and generates high-quality transcriptions with speaker identification using Whisper AI and Claude.
+A Discord bot that joins voice channels, records audio from D&D sessions, and generates high-quality transcriptions with speaker identification using Whisper AI and Ollama (local AI).
 
 ## Features
 
@@ -8,7 +8,7 @@ A Discord bot that joins voice channels, records audio from D&D sessions, and ge
 - **Speaker Identification**: Automatically detects and labels who said what
 - **Chronological Order**: Transcripts show conversation flow in order of speaking
 - **Whisper AI**: Local transcription using Whisper large-v3 model (best quality)
-- **Claude Enhancement**: AI post-processing to improve transcript readability
+- **Ollama Enhancement**: Local AI post-processing to improve transcript readability (no API costs!)
 - **Italian Optimized**: Configured for Italian language (easily changeable)
 - **Dual Output**: Get both raw and AI-enhanced transcripts
 
@@ -16,7 +16,7 @@ A Discord bot that joins voice channels, records audio from D&D sessions, and ge
 
 1. Bot joins your voice channel and records each speaker separately
 2. Whisper (large-v3) transcribes each speaker's audio
-3. Claude processes the transcript to fix errors and improve readability
+3. Ollama (local LLM) processes the transcript to fix errors and improve readability
 4. You receive both the original and enhanced versions
 
 ## Prerequisites
@@ -85,26 +85,39 @@ DISCORD_TOKEN=your_bot_token_here
 CLIENT_ID=your_application_client_id_here
 GUILD_ID=your_discord_server_id_here
 WHISPER_MODEL=large-v3
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.2
 ```
 
 **Finding your IDs:**
 - `CLIENT_ID`: In Developer Portal > Your App > "Application ID"
 - `GUILD_ID`: Right-click your Discord server > "Copy Server ID" (Enable Developer Mode in Discord settings first)
-- `ANTHROPIC_API_KEY`: Get it from [console.anthropic.com](https://console.anthropic.com)
 
-5. Download the Whisper model (first run will do this automatically, or manually):
+5. Install and start Ollama:
+```bash
+# macOS
+brew install ollama
+brew services start ollama
+ollama pull llama3.2
+
+# Linux
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve &
+ollama pull llama3.2
+```
+
+6. Download the Whisper model (first run will do this automatically, or manually):
 ```bash
 cd node_modules/whisper-node/dist/cpp/whisper.cpp
 bash models/download-ggml-model.sh large-v3
 ```
 
-6. Deploy slash commands:
+7. Deploy slash commands:
 ```bash
 npm run deploy-commands
 ```
 
-7. Start the bot:
+8. Start the bot:
 ```bash
 npm start
 ```
@@ -130,7 +143,7 @@ npm start
 5. Use `/stop` when finished
 6. The bot will:
    - Transcribe each speaker with Whisper
-   - Process with Claude for better readability
+   - Process with Ollama for better readability
    - Post both versions in the channel
 
 ### Output Example
@@ -150,9 +163,9 @@ ok quindi noi dobbiamo andare a scorrere bene per favore dai dai dai
 è una scorrina di bene per farlo dove che prendo cosa
 ```
 
-**Revised (Claude):**
+**Revised (Ollama):**
 ```
-D&D Session Transcript (Revised by Claude)
+D&D Session Transcript (Revised by Ollama/llama3.2)
 Session: session_2024-01-15T20-30-00
 ==================================================
 
@@ -190,9 +203,23 @@ whisper: {
 },
 ```
 
-### Disable Claude Processing
+### Disable Ollama Processing
 
-If you don't want Claude post-processing, remove or leave empty the `ANTHROPIC_API_KEY` in `.env`. The bot will still work with just Whisper.
+If you don't want Ollama post-processing, stop the Ollama service. The bot will still work with just Whisper (original transcript only).
+
+### Change Ollama Model
+
+You can use any model available in Ollama. Some options:
+```bash
+ollama pull llama3.2      # Default, good balance
+ollama pull mistral       # Fast and capable
+ollama pull llama3.1:8b   # Larger, better quality
+```
+
+Then update `.env`:
+```env
+OLLAMA_MODEL=mistral
+```
 
 ## Project Structure
 
@@ -215,7 +242,7 @@ dnd-transcription-bot/
 │   │   └── audioStream.js # WASM Opus decoder & audio mixing
 │   └── transcription/
 │       ├── whisper.js     # Whisper integration
-│       └── claudeProcessor.js # Claude AI enhancement
+│       └── ollamaProcessor.js # Ollama AI enhancement
 ├── recordings/            # Temporary audio files (per-user WAV)
 ├── transcripts/           # Original Whisper transcripts
 └── transcripts-revised/   # Claude-enhanced transcripts
@@ -243,9 +270,10 @@ npm install
 - Check that the audio files are being saved (look in `recordings/`)
 - Ensure speakers are close to their microphones
 
-### Claude processing fails
-- Verify your `ANTHROPIC_API_KEY` is correct
-- Check your Anthropic account has credits
+### Ollama processing fails
+- Make sure Ollama is running: `ollama serve`
+- Check if the model is downloaded: `ollama list`
+- Pull the model if missing: `ollama pull llama3.2`
 - The original transcript will still be available
 
 ### Whisper model not found
@@ -264,7 +292,7 @@ bash models/download-ggml-model.sh large-v3
 - **@discordjs/voice** - Voice channel connections
 - **opus-decoder** - WASM-based Opus audio decoding
 - **whisper.cpp** - Local Whisper AI transcription
-- **@anthropic-ai/sdk** - Claude API for text enhancement
+- **Ollama** - Local LLM for text enhancement (no API costs!)
 
 ## License
 
@@ -272,4 +300,4 @@ MIT
 
 ## Credits
 
-Built with Whisper by OpenAI and Claude by Anthropic.
+Built with Whisper by OpenAI and Ollama for local AI processing.
