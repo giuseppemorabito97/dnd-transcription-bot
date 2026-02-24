@@ -10,6 +10,8 @@ recordings/*.pcm
 
 # Transcripts (keep folder but ignore content)
 transcripts/*.txt
+transcripts-revised/*.txt
+transcripts-revised/*_embeddings.json
 
 # Whisper models
 *.bin

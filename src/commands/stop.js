@@ -80,8 +80,8 @@ export async function execute(interaction, client) {
           `🦙 Processing with Ollama for better readability...`,
       });
 
-      // Process with Ollama to improve readability
-      const revisedPath = await processWithOllama(transcriptPath, session.sessionName);
+      // Process with Ollama (revise, chunk, embed, summary)
+      const { revisedPath, summary } = await processWithOllama(transcriptPath, session.sessionName);
 
       // Prepare attachments
       const files = [];
@@ -100,19 +100,19 @@ export async function execute(interaction, client) {
         });
         files.push(revisedAttachment);
 
-        // Read revised for preview
+        // Read revised for preview (primi 1200 char per lasciare spazio al riassunto)
         const revisedContent = await readFile(revisedPath, 'utf-8');
-        revisedPreview = revisedContent.length > 1500
-          ? revisedContent.slice(0, 1500) + '\n\n... (truncated, see full file)'
+        revisedPreview = revisedContent.length > 1200
+          ? revisedContent.slice(0, 1200) + '\n\n... (truncated, see full file)'
           : revisedContent;
       }
 
-      // Send final message with attachments
+      // Messaggio principale: stato + preview (allegati sotto)
       const content = revisedPath && existsSync(revisedPath)
         ? `✅ **Transcription complete!**\n` +
           `Session: \`${session.sessionName}\`\n` +
           `Duration: ${minutes}m ${seconds}s\n\n` +
-          `📄 **Original transcript** + 🦙 **Revised by Ollama**\n\n` +
+          `📄 **Original** + 🦙 **Revised** (chunking, embedding, summary)\n\n` +
           `**Preview (Revised):**\n\`\`\`\n${revisedPreview}\n\`\`\``
         : `✅ **Transcription complete!**\n` +
           `Session: \`${session.sessionName}\`\n` +
@@ -123,6 +123,15 @@ export async function execute(interaction, client) {
         content,
         files,
       });
+
+      // Riassunto in chat come messaggio separato (limite Discord 2000 caratteri)
+      if (summary) {
+        const maxLen = 1950;
+        const summaryMsg = summary.length > maxLen ? summary.slice(0, maxLen) + '\n...' : summary;
+        await interaction.followUp({
+          content: `📋 **Riassunto** – \`${session.sessionName}\`\n\n${summaryMsg}`,
+        });
+      }
     } else {
       await interaction.editReply({
         content:

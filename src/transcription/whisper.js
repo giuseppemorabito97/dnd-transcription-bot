@@ -1,12 +1,33 @@
 import { existsSync, mkdirSync } from 'fs';
 import { writeFile, readFile } from 'fs/promises';
-import { join, basename, dirname } from 'path';
+import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import config from '../config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = join(__dirname, '..', '..');
+const PROJECT_ROOT = resolve(__dirname, '..', '..');
+
+/**
+ * Resolve whisper.cpp path: use project root from this file, fall back to cwd if model not found.
+ */
+function getWhisperPaths() {
+  const modelName = (config.whisper?.model || 'large-v3').trim();
+  const rel = ['node_modules', 'whisper-node', 'lib', 'whisper.cpp'];
+  const roots = [PROJECT_ROOT, process.cwd()];
+  for (const root of roots) {
+    const whisperCppPath = resolve(root, ...rel);
+    const modelPath = resolve(whisperCppPath, 'models', `ggml-${modelName}.bin`);
+    const mainPath = resolve(whisperCppPath, 'main');
+    if (existsSync(modelPath)) {
+      return { whisperCppPath, modelPath, mainPath };
+    }
+  }
+  const whisperCppPath = resolve(PROJECT_ROOT, ...rel);
+  const modelPath = resolve(whisperCppPath, 'models', `ggml-${modelName}.bin`);
+  const mainPath = resolve(whisperCppPath, 'main');
+  return { whisperCppPath, modelPath, mainPath };
+}
 
 /**
  * Transcribe audio file using Whisper
@@ -26,16 +47,12 @@ export async function transcribeAudio(audioPath, sessionName) {
   console.log(`[Whisper] Starting transcription: ${audioPath}`);
   console.log(`[Whisper] Output: ${transcriptPath}`);
 
-  // Path to whisper.cpp in whisper-node
-  const whisperCppPath = join(PROJECT_ROOT, 'node_modules', 'whisper-node', 'dist', 'cpp', 'whisper.cpp');
-  const modelPath = join(whisperCppPath, 'models', `ggml-${config.whisper.model}.bin`);
-  const mainPath = join(whisperCppPath, 'build', 'bin', 'whisper-cli');
-
+  const { whisperCppPath, modelPath, mainPath } = getWhisperPaths();
   console.log(`[Whisper] Model path: ${modelPath}`);
   console.log(`[Whisper] Model exists: ${existsSync(modelPath)}`);
 
   if (!existsSync(modelPath)) {
-    console.error(`[Whisper] Model not found at ${modelPath}`);
+    console.error(`[Whisper] Model not found at ${modelPath}. Run: npm run install:whisper`);
     return createPlaceholderTranscript(transcriptPath, sessionName, audioPath, 'Model not found');
   }
 
@@ -139,13 +156,9 @@ export async function transcribeWithSpeakers(userAudioFiles, sessionName, speaki
 
   const transcriptPath = join(transcriptsDir, `${sessionName}.txt`);
 
-  // Path to whisper.cpp
-  const whisperCppPath = join(PROJECT_ROOT, 'node_modules', 'whisper-node', 'dist', 'cpp', 'whisper.cpp');
-  const modelPath = join(whisperCppPath, 'models', `ggml-${config.whisper.model}.bin`);
-  const mainPath = join(whisperCppPath, 'build', 'bin', 'whisper-cli');
-
+  const { modelPath, mainPath } = getWhisperPaths();
   if (!existsSync(modelPath)) {
-    console.error(`[Whisper] Model not found at ${modelPath}`);
+    console.error(`[Whisper] Model not found at ${modelPath}. Run: npm run install:whisper`);
     return createPlaceholderTranscript(transcriptPath, sessionName, 'multiple files', 'Model not found');
   }
 

@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "deploy-commands": "node src/deploy-commands.js"
+    "deploy-commands": "node src/deploy-commands.js",
+    "install:whisper": "(cd node_modules/whisper-node/lib/whisper.cpp/models && bash download-ggml-model.sh large-v3) && (cd node_modules/whisper-node/lib/whisper.cpp && make)"
   },
   "keywords": [
     "discord",

@@ -106,11 +106,11 @@ ollama serve &
 ollama pull llama3.2
 ```
 
-6. Download the Whisper model (first run will do this automatically, or manually):
+6. Download the Whisper model and build whisper.cpp:
 ```bash
-cd node_modules/whisper-node/dist/cpp/whisper.cpp
-bash models/download-ggml-model.sh large-v3
+npm run install:whisper
 ```
+(Or manually: `cd node_modules/whisper-node/lib/whisper.cpp/models && bash download-ggml-model.sh large-v3`, then `cd .. && make`.)
 
 7. Deploy slash commands:
 ```bash
@@ -278,9 +278,9 @@ npm install
 
 ### Whisper model not found
 ```bash
-cd node_modules/whisper-node/dist/cpp/whisper.cpp
-bash models/download-ggml-model.sh large-v3
+npm run install:whisper
 ```
+Or: `cd node_modules/whisper-node/lib/whisper.cpp/models && bash download-ggml-model.sh large-v3`, then `cd .. && make`.
 
 ### High memory usage
 - Use a smaller model: `WHISPER_MODEL=medium` or `small`

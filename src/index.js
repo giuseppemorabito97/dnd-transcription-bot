@@ -62,10 +62,19 @@ client.on(Events.InteractionCreate, async interaction => {
       ephemeral: true,
     };
 
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp(errorMessage);
-    } else {
-      await interaction.reply(errorMessage);
+    try {
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp(errorMessage);
+      } else {
+        await interaction.reply(errorMessage);
+      }
+    } catch (replyError) {
+      // Interaction may already be acknowledged (e.g. command called deferReply then threw)
+      if (replyError.code === 40060) {
+        await interaction.followUp(errorMessage);
+      } else {
+        throw replyError;
+      }
     }
   }
 });
