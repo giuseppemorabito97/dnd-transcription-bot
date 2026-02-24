@@ -22,5 +22,6 @@ export default {
     root: rootDir,
     recordings: process.env.RECORDINGS_PATH || join(rootDir, 'recordings'),
     transcripts: process.env.TRANSCRIPTS_PATH || join(rootDir, 'transcripts'),
+    transcriptsRevised: process.env.TRANSCRIPTS_REVISED_PATH || join(rootDir, 'transcripts-revised'),
   },
 };
