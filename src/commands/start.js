@@ -43,28 +43,38 @@ export async function execute(interaction, client) {
     `session_${new Date().toISOString().replace(/[:.]/g, '-')}`;
 
   try {
-    // Initialize voice recorder with client for fetching usernames
+    await interaction.deferReply();
     const recorder = new VoiceRecorder(connection, interaction.guildId, sessionName, client);
     await recorder.start();
 
-    // Update session state
     session.recording = true;
     session.startTime = Date.now();
     session.recorder = recorder;
     session.sessionName = sessionName;
+    session.masterUserId = interaction.user.id;
 
     const channelName = session.voiceChannel.name;
 
-    await interaction.reply({
+    await interaction.editReply({
       content: `🔴 **Recording started** in **${channelName}**\n` +
         `Session: \`${sessionName}\`\n\n` +
         `Use \`/stop\` to finish and generate transcription.`,
     });
   } catch (error) {
     console.error('[Start] Error:', error);
-    await interaction.reply({
-      content: 'Failed to start recording. Please try again.',
-      ephemeral: true,
-    });
+    try {
+      if (interaction.deferred) {
+        await interaction.editReply({
+          content: 'Failed to start recording. Please try again.',
+        });
+      } else {
+        await interaction.reply({
+          content: 'Failed to start recording. Please try again.',
+          ephemeral: true,
+        });
+      }
+    } catch (e) {
+      console.error('[Start] Failed to send error message:', e.message);
+    }
   }
 }

@@ -43,17 +43,17 @@ export class AudioMixer extends EventEmitter {
   }
 
   /**
-   * Get speaking segments sorted by start time
+   * Get speaking segments sorted by end time (stop of speaking).
+   * Ordine cronologico = ordine in cui ciascuno smette di parlare (frase per frase).
    */
   getSpeakingSegments() {
-    // Close any open segments
     const now = Date.now() - this.startTime;
     for (const segment of this.speakingSegments) {
       if (segment.endTime === null) {
         segment.endTime = now;
       }
     }
-    return this.speakingSegments.sort((a, b) => a.startTime - b.startTime);
+    return this.speakingSegments.sort((a, b) => (a.endTime ?? a.startTime) - (b.endTime ?? b.startTime));
   }
 
   addStream(userId, opusStream) {
@@ -125,6 +125,18 @@ export class AudioMixer extends EventEmitter {
 
   getUserIds() {
     return [...this.userPackets.keys()];
+  }
+
+  /**
+   * Clear stored packets and segments (e.g. after a checkpoint save).
+   * Use when doing periodic checkpoints so the next window only has new audio.
+   */
+  clearUserPackets() {
+    this.userPackets.clear();
+  }
+
+  clearSpeakingSegments() {
+    this.speakingSegments.length = 0;
   }
 
   /**

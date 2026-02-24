@@ -3,6 +3,7 @@ import { writeFile, readFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync, mkdirSync } from 'fs';
+import { normalizeTranscript } from './utils/transcriptFormat.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
@@ -25,8 +26,9 @@ export async function processWithClaude(transcriptPath, sessionName) {
   const revisedPath = join(revisedDir, `${sessionName}_revised.txt`);
 
   try {
-    // Read the original transcript
-    const originalTranscript = await readFile(transcriptPath, 'utf-8');
+    // Read and normalize the original transcript
+    const rawTranscript = await readFile(transcriptPath, 'utf-8');
+    const originalTranscript = normalizeTranscript(rawTranscript);
 
     console.log('[Claude] Processing transcript to improve readability...');
 
@@ -48,12 +50,12 @@ Il tuo compito è:
 4. Mantenere i nomi degli speaker e i timestamp
 5. Se una parte è incomprensibile, segnalala con [incomprensibile]
 6. NON inventare contenuti che non sono presenti
-7. Mantieni il formato con speaker e timestamp
+7. Usa SOLO il formato: [timestamp] speaker - linea (es: [0:13] Paolo_Fontana - Testo dell'intervento)
 
 TRASCRIZIONE ORIGINALE:
 ${originalTranscript}
 
-Rispondi SOLO con la trascrizione migliorata, senza commenti aggiuntivi.`
+Rispondi SOLO con la trascrizione migliorata nel formato [timestamp] speaker - linea, senza commenti aggiuntivi.`
         }
       ]
     });

@@ -2,7 +2,10 @@ import { EndBehaviorType } from '@discordjs/voice';
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { AudioMixer } from './audioStream.js';
+import { transcribeAudio } from '../transcription/whisper.js';
 import config from '../config.js';
+
+const CHECKPOINT_INTERVAL_MS = 30 * 60 * 1000; // 30 minuti
 
 export class VoiceRecorder {
   constructor(connection, guildId, sessionName, client) {
@@ -15,6 +18,8 @@ export class VoiceRecorder {
     this.outputPath = null;
     this.isRecording = false;
     this.userNames = new Map(); // userId -> username
+    this.checkpointCount = 0;
+    this.checkpointTimer = null;
   }
 
   async start() {
@@ -29,6 +34,8 @@ export class VoiceRecorder {
     );
 
     this.isRecording = true;
+    this.checkpointCount = 0;
+    this.checkpointTimer = setInterval(() => this.runCheckpoint(), CHECKPOINT_INTERVAL_MS);
 
     // Get the receiver from the voice connection
     const receiver = this.connection.receiver;
@@ -94,6 +101,10 @@ export class VoiceRecorder {
 
   async stop() {
     this.isRecording = false;
+    if (this.checkpointTimer) {
+      clearInterval(this.checkpointTimer);
+      this.checkpointTimer = null;
+    }
 
     // Stop all user streams
     for (const [userId, stream] of this.userStreams) {
@@ -186,6 +197,31 @@ export class VoiceRecorder {
     }
 
     return results;
+  }
+
+  /**
+   * Salva checkpoint (audio finora), azzera i pacchetti, poi trascrive in background.
+   * Chiamato ogni 30 minuti durante la registrazione.
+   */
+  async runCheckpoint() {
+    if (!this.isRecording || this.mixer.getPacketCount() === 0) return;
+
+    const partNum = ++this.checkpointCount;
+    const checkpointName = `${this.sessionName}_checkpoint_${partNum}`;
+    const checkpointPath = join(config.paths.recordings, `${checkpointName}.wav`);
+
+    try {
+      console.log(`[Recorder] Checkpoint ${partNum} (30 min): saving WAV...`);
+      await this.mixer.saveToWav(checkpointPath);
+      this.mixer.clearUserPackets();
+      this.mixer.clearSpeakingSegments();
+      console.log(`[Recorder] Checkpoint ${partNum} saved. Starting background transcription...`);
+      transcribeAudio(checkpointPath, checkpointName).catch(err => {
+        console.error(`[Recorder] Checkpoint ${partNum} transcription failed:`, err.message);
+      });
+    } catch (err) {
+      console.error(`[Recorder] Checkpoint ${partNum} save failed:`, err.message);
+    }
   }
 
   /**

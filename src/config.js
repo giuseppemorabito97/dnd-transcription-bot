@@ -13,10 +13,14 @@ export default {
     token: process.env.DISCORD_TOKEN,
     clientId: process.env.CLIENT_ID,
     guildId: process.env.GUILD_ID,
+    /** Nome del canale testuale dove inviare trascrizione e riassunto (es. "riassunti"). Se non esiste, si usa thread/canale corrente. */
+    summaryChannelName: process.env.SUMMARY_CHANNEL_NAME || 'riassunti',
   },
   whisper: {
     model: process.env.WHISPER_MODEL || 'large-v3',
     language: process.env.WHISPER_LANGUAGE || 'it', // Italian
+    /** Durata in secondi di ogni chunk audio (0 = nessun chunking). Es. 600 = 10 min. */
+    chunkDurationSeconds: parseInt(process.env.WHISPER_CHUNK_DURATION_SECONDS || '0', 10) || 0,
   },
   paths: {
     root: rootDir,
